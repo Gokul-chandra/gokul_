@@ -1,0 +1,457 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  DEVELOPER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum CustomerType {
+  STUDENT
+  INSTITUTION
+  INDIVIDUAL
+  STARTUP
+  SMALL_BUSINESS
+  COMPANY
+  OTHER
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  EXPERIENCED
+  EXPERT
+}
+
+enum Availability {
+  AVAILABLE
+  LIMITED
+  UNAVAILABLE
+}
+
+enum PricingModel {
+  FIXED
+  HOURLY
+  STARTING_FROM
+  CUSTOM_QUOTE
+}
+
+enum ProjectStatus {
+  DRAFT
+  POSTED
+  PROPOSALS_RECEIVED
+  DISCUSSION
+  ACCEPTED
+  IN_PROGRESS
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum ProposalStatus {
+  SUBMITTED
+  WITHDRAWN
+  ACCEPTED
+  DECLINED
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum PaymentStatus {
+  PENDING_SETUP
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum PlanTier {
+  FREE
+  PRO
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          Role
+  status        AccountStatus @default(ACTIVE)
+  emailVerified DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  isDemo        Boolean       @default(false)
+
+  customerProfile  CustomerProfile?
+  developerProfile DeveloperProfile?
+
+  projects         Project[]
+  messagesSent     Message[]
+  notifications    Notification[]
+  reviewsWritten   Review[]       @relation("ReviewAuthor")
+  reportsMade      Report[]       @relation("ReportAuthor")
+  blocksMade       Block[]        @relation("Blocker")
+  blocksReceived   Block[]        @relation("Blocked")
+  resetTokens      PasswordResetToken[]
+  auditLogs        AuditLog[]
+  participations   ConversationParticipant[]
+
+  @@index([role, status])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CustomerProfile {
+  id           String       @id @default(cuid())
+  userId       String       @unique
+  customerType CustomerType
+  organization String?
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DeveloperProfile {
+  id                 String          @id @default(cuid())
+  userId             String          @unique
+  displayName        String
+  imageUrl           String?
+  bio                String          @default("")
+  qualification      String?
+  experienceLevel    ExperienceLevel @default(BEGINNER)
+  skills             String[]
+  languages          String[]
+  frameworks         String[]
+  tools              String[]
+  githubUrl          String?
+  portfolioUrl       String?
+  location           String?
+  availability       Availability    @default(AVAILABLE)
+  contactPreferences String[]
+  published          Boolean         @default(false)
+  // Identity/skills verification is NOT performed in the MVP. Never display "vetted".
+  verified           Boolean         @default(false)
+  plan               PlanTier        @default(FREE)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings  ServiceListing[]
+  proposals Proposal[]
+  samples   WorkSample[]
+  reviews   Review[]
+
+  @@index([published, availability])
+}
+
+model WorkSample {
+  id          String           @id @default(cuid())
+  developerId String
+  title       String
+  url         String
+  description String?
+  developer   DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
+  @@index([developerId])
+}
+
+model Category {
+  id     String  @id @default(cuid())
+  slug   String  @unique
+  name   String
+  active Boolean @default(true)
+
+  projects Project[]
+  listings ServiceListing[]
+}
+
+model ServiceListing {
+  id           String        @id @default(cuid())
+  developerId  String
+  categoryId   String
+  title        String
+  description  String
+  pricingModel PricingModel
+  // Amounts in paise (INR minor unit) to avoid float rounding. Null for CUSTOM_QUOTE.
+  priceMinPaise Int?
+  priceMaxPaise Int?
+  deliveryDays Int?
+  status       ListingStatus @default(DRAFT)
+  sponsored    Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  developer DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  category  Category         @relation(fields: [categoryId], references: [id])
+
+  @@index([status, categoryId])
+}
+
+model Project {
+  id                String        @id @default(cuid())
+  customerId        String
+  categoryId        String
+  title             String
+  description       String
+  pages             String[]
+  features          String[]
+  technologies      String[]
+  referenceLinks    String[]
+  stylePreference   String?
+  needsLogin        Boolean       @default(false)
+  needsAdminPanel   Boolean       @default(false)
+  needsDatabase     Boolean       @default(false)
+  needsPayments     Boolean       @default(false)
+  needsDeployment   Boolean       @default(false)
+  mobileResponsive  Boolean       @default(true)
+  briefAnswers      Json?
+  budgetMinPaise    Int?
+  budgetMaxPaise    Int?
+  deadline          DateTime?
+  contactPreference String[]
+  institutionNote   Boolean       @default(false)
+  status            ProjectStatus @default(DRAFT)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  isDemo            Boolean       @default(false)
+
+  customer      User           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  category      Category       @relation(fields: [categoryId], references: [id])
+  files         ProjectFile[]
+  proposals     Proposal[]
+  conversations Conversation[]
+  reviews       Review[]
+  payments      Payment[]
+  statusEvents  ProjectStatusEvent[]
+
+  @@index([customerId, status])
+  @@index([status, categoryId])
+}
+
+model ProjectStatusEvent {
+  id        String        @id @default(cuid())
+  projectId String
+  status    ProjectStatus
+  actorId   String?
+  createdAt DateTime      @default(now())
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model ProjectFile {
+  id         String   @id @default(cuid())
+  projectId  String
+  storageKey String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Proposal {
+  id           String         @id @default(cuid())
+  projectId    String
+  developerId  String
+  pricePaise   Int
+  scope        String
+  deliverables String
+  timelineDays Int
+  revisions    Int            @default(1)
+  status       ProposalStatus @default(SUBMITTED)
+  // Platform fee disclosed to customer BEFORE acceptance; stored as basis points at submit time.
+  commissionBps Int           @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  developer DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, developerId])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  projectId String
+  createdAt DateTime @default(now())
+
+  project      Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([projectId])
+}
+
+model ConversationParticipant {
+  id             String    @id @default(cuid())
+  conversationId String
+  userId         String
+  lastReadAt     DateTime?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String    @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  createdAt      DateTime  @default(now())
+  readAt         DateTime?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  projectId   String
+  authorId    String
+  developerId String
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author    User             @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  developer DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
+  // One review per completed project; service layer must verify project.status = COMPLETED
+  // and that the author is the project's customer.
+  @@unique([projectId, authorId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  projectId   String
+  amountPaise Int
+  feePaise    Int           @default(0)
+  status      PaymentStatus @default(PENDING_SETUP)
+  gateway     String?
+  gatewayRef  String?
+  createdAt   DateTime      @default(now())
+  project     Project       @relation(fields: [projectId], references: [id])
+  invoice     Invoice?
+
+  @@index([projectId])
+}
+
+model Invoice {
+  id        String   @id @default(cuid())
+  paymentId String   @unique
+  number    String   @unique
+  issuedAt  DateTime @default(now())
+  payment   Payment  @relation(fields: [paymentId], references: [id])
+}
+
+model Subscription {
+  id        String    @id @default(cuid())
+  userId    String
+  plan      PlanTier
+  startedAt DateTime  @default(now())
+  endsAt    DateTime?
+  gatewayRef String?
+
+  @@index([userId])
+}
+
+model Report {
+  id         String       @id @default(cuid())
+  reporterId String
+  targetType String
+  targetId   String
+  reason     String
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+  reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+}
+
+model PlatformSetting {
+  key   String @id
+  value String
+}
+
+model RateLimit {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+}
